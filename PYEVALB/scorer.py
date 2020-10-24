@@ -17,6 +17,9 @@ from .parser import ParsingError
 from .summary import Result
 from . import parser
 from . import summary
+from .tree import Node
+
+import copy
 
 ############################################################
 # Exceptions
@@ -68,6 +71,40 @@ class Scorer:
     def __init__(self):
         pass
 
+    def node_match(self,node1,node2):
+        
+        # EKN: return true if nodes match OR match except for
+        # being labelled ADVP and PRT
+        # (based on equiv. tags in nk.prm in evalb)
+
+        equiv_tags = set(['ADVP','PRT'])
+        if node1==node2:
+            return True
+        elif node1.span==node2.span and \
+             node1.value in equiv_tags and \
+             node2.value in equiv_tags:
+            return True
+        else:
+            return False
+
+    def node_search(self,nodelist,node):
+        if node in nodelist:
+            return True
+        else:
+            for curr_node in nodelist:
+                if self.node_match(curr_node,node):
+                    return True
+            return False
+
+    def get_equiv_node(self,node):
+        if node.value == 'ADVP':
+            new_value = 'PRT'
+        elif node.value == 'PRT':
+            new_value = 'ADVP'
+        new_node = Node(new_value)
+        new_node._span = node.span
+        return new_node
+        
     def _cal_spans(self, gold_nodes, test_nodes):
         """Calculate the common span and across span
 
@@ -80,7 +117,22 @@ class Scorer:
                 span_result[0]: the number of common spans
                 span_result[1]: the number of crossing spans
         """
-        common = set(gold_nodes) & set(test_nodes)
+        #common = set(gold_nodes) & set(test_nodes)
+        #gold_spans = [node.span for node in gold_nodes]
+        #common = [node for node in test_nodes if node.span in gold_spans]
+        #test_nodes = list(set(test_nodes))
+        #common = [node for node in test_nodes if node in gold_nodes]
+        common = []
+        matched_gold_nodes = copy.deepcopy(gold_nodes)
+        for node in test_nodes:
+            if self.node_search(matched_gold_nodes,node):
+                common.append(node)
+                if node in matched_gold_nodes:
+                    matched_gold_nodes.remove(node)
+                else:
+                    matched_gold_nodes.remove(self.get_equiv_node(node))
+        #import pdb;pdb.set_trace()
+        
         unmatched_spans = [node.span for node in test_nodes
                            if node not in common]
         gold_spans = [node.span for node in gold_nodes]
@@ -127,16 +179,16 @@ class Scorer:
 
         # Statistics
         result = Result()
-        common_numeber, cross_number = self._cal_spans(
+        common_number, cross_number = self._cal_spans(
                 gold_label_nodes, test_label_nodes)
         correct_poss_num = sum([gold == test for gold, test
                                in zip(gold_poss, test_poss)])
 
         result.length = len(gold_sentence)
         result.state = 0
-        result.recall = common_numeber / len(gold_label_nodes)
-        result.prec = common_numeber / len(test_label_nodes)
-        result.matched_brackets = common_numeber
+        result.recall = common_number / len(gold_label_nodes)
+        result.prec = common_number / len(test_label_nodes)
+        result.matched_brackets = common_number
         result.gold_brackets = len(gold_label_nodes)
         result.test_brackets = len(test_label_nodes)
         result.cross_brackets = cross_number
